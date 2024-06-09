@@ -1,0 +1,251 @@
+---
+title: "Get-MODIS"
+author: "Diego J. Lizcano"
+date: "2024-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# https://flograttarola.com/post/modis-downloads/
+
+```
+
+
+```{r eval=FALSE, echo=TRUE}
+library(protolite)
+library(MODIStsp)
+library(terra)
+library(sf)
+
+library(tidyverse)
+
+# Based on: 
+# https://github.com/bienflorencia/yaguarundi_IDM/blob/main/code/S01_environmental_data_download_and_cleaning.Rmd
+
+```
+
+
+> Notice it does not run in last R version.  Use R-4.2.2  
+
+## Products 
+
+See the products
+
+```{r eval=FALSE, echo=TRUE}
+MODIStsp_get_prodnames()
+```
+
+### Bands
+
+- LandCover_Type_Yearly_500m (MCD12Q1)
+- Veg_Cont_Fields_Yearly_250m (MOD44B)
+
+```{r eval=FALSE, echo=TRUE}
+MODIStsp_get_prodlayers("MCD12Q1")$bandnames
+MODIStsp_get_prodlayers("MOD44B")$bandnames
+
+
+```
+
+## Download
+
+we need to create a profile at https://urs.earthdata.nasa.gov/home to get a user and password. We need to define the out_folder to where the data are going to be downloaded. We also need to specify which product (selprod), band (bandsel) and sensor we want to download. We also need to define a temporal period, as start_date and end_date, and a spatial output resolution, for which we will select a bounding box as spatmeth. We will then provide the bbox values (xmin, ymin, xmax, ymax) from our study area (Latin America) in our desired output projection. We will also specify the output projection (output_proj) as ‘+proj=laea +lon_0=-73.125 +lat_0=0 +datum=WGS84 +units=m +no_defs’ Equatorial Lambert azimuthal equal-area (you can also use EPSG code or WKT string here) EPSG:9820.
+
+using https://projectionwizard.org/
+for distance: Azimuthal equidistant: +proj=aeqd +lon_0=-73.83 +lat_0=-13.2 +datum=WGS84 +units=m +no_defs
+
+(EPSG) 4326 are long/lat, and they are in decimal degrees. 
+
+### Decimal degree
+
+#### Land Cover Type 500m
+
+```{r eval=FALSE, echo=TRUE}
+MODIStsp(gui             = FALSE,
+         out_folder      = 'C:/CodigoR/WCS_2024/camera_trap/raster/latlon/',
+         out_folder_mod  = 'C:/CodigoR/WCS_2024/camera_trap/raster/latlon/',
+         selprod         = 'LandCover_Type_Yearly_500m (MCD12Q1)',
+         bandsel         = 'LC1',
+         sensor          = 'Terra',
+         user            = 'dlizcano' , # your username for NASA http server
+         password        = 'Chuleta_9014',  # your password for NASA http server
+         start_date      = '2000.01.01',
+         end_date        = '2022.12.31',
+         verbose         = TRUE,
+         bbox            =  c(-118.5, -57.5, -34.1, 32.3), # bbox of Latam http://bboxfinder.com/  xmin, ymin, xmax, ymax   lon, lat 
+         spatmeth        = 'bbox',
+         out_format      = 'GTiff',
+         compress        = 'LZW',
+         out_projsel     = 'User Defined',
+         output_proj     = '+proj=longlat +datum=WGS84 +no_defs +type=crs',
+         delete_hdf      = TRUE,
+         parallel        = TRUE
+         )
+
+```
+
+#### Percent Tree Cover 250m
+
+```{r eval=FALSE, echo=TRUE}
+MODIStsp(gui             = FALSE,
+         out_folder      = 'C:/CodigoR/WCS_2024/camera_trap/raster/latlon/',
+         out_folder_mod  = 'C:/CodigoR/WCS_2024/camera_trap/raster/latlon/',
+         selprod         = 'Veg_Cont_Fields_Yearly_250m (MOD44B)',
+         bandsel         = 'Perc_TreeCov',
+         sensor          = 'Terra',
+         user            = 'dlizcano' , # your username for NASA http server
+         password        = 'Chuleta_9014',  # your password for NASA http server
+         start_date      = '2000.01.01',
+         end_date        = '2022.12.31',
+         verbose         = TRUE,
+         bbox            =  c(-118.5, -57.5, -34.1, 32.3), # bbox of Latam http://bboxfinder.com/  xmin, ymin, xmax, ymax   lon, lat 
+         spatmeth        = 'bbox',
+         out_format      = 'GTiff',
+         compress        = 'LZW',
+         out_projsel     = 'User Defined',
+         output_proj     = '+proj=longlat +datum=WGS84 +no_defs +type=crs',
+         delete_hdf      = TRUE,
+         parallel        = TRUE
+         )
+
+```
+
+
+### Lambert
+
+#### Land Cover Type 500m
+
+```{r eval=FALSE, echo=TRUE}
+MODIStsp(gui             = FALSE,
+         out_folder      = "C:/CodigoR/WCS_2024/camera_trap/raster/lambert",
+         out_folder_mod  = "C:/CodigoR/WCS_2024/camera_trap/raster/lambert",
+         selprod         = 'LandCover_Type_Yearly_500m (MCD12Q1)',
+         bandsel         = 'LC1',
+         sensor          = 'Terra',
+         user            = 'dlizcano' , # your username for NASA http server
+         password        = 'Chuleta_9014',  # your password for NASA http server
+         start_date      = '2000.01.01',
+         end_date        = '2022.12.31',
+         verbose         = TRUE,
+         bbox            =  c(-5596641.0845, -6673508.6914, 4698677.0087, 4157242.8202), #bbox of Latam
+         spatmeth        = 'bbox',
+         out_format      = 'GTiff',
+         compress        = 'LZW',
+         out_projsel     = 'User Defined',
+         output_proj     = '+proj=laea +lon_0=-73.125 +lat_0=0 +datum=WGS84 +units=m +no_defs',
+         delete_hdf      = TRUE,
+         parallel        = TRUE
+         )
+
+```
+
+
+#### Percent Tree Cover 250m
+
+```{r eval=FALSE, echo=TRUE}
+MODIStsp(gui             = FALSE,
+         out_folder      = "C:/CodigoR/WCS_2024/camera_trap/raster/lambert",
+         out_folder_mod  = "C:/CodigoR/WCS_2024/camera_trap/raster/lambert",
+         selprod         = 'Veg_Cont_Fields_Yearly_250m (MOD44B)',
+         bandsel         = 'Perc_TreeCov',
+         sensor          = 'Terra',
+         user            = 'dlizcano' , # your username for NASA http server
+         password        = 'Chuleta_9014',  # your password for NASA http server
+         start_date      = '2000.01.01',
+         end_date        = '2022.12.31',
+         verbose         = TRUE,
+         bbox            =  c(-5596641.0845, -6673508.6914, 4698677.0087, 4157242.8202), #bbox of Latam
+         spatmeth        = 'bbox',
+         out_format      = 'GTiff',
+         compress        = 'LZW',
+         out_projsel     = 'User Defined',
+         output_proj     = '+proj=laea +lon_0=-73.125 +lat_0=0 +datum=WGS84 +units=m +no_defs',
+         delete_hdf      = TRUE,
+         parallel        = TRUE
+         )
+
+```
+
+
+
+
+
+
+Once the data are downloaded we will process the rasters using the terra package.
+
+```{r eval=FALSE, echo=TRUE}
+# PRE: 2000-2013
+landcover_pre_files <- list.files('C:/CodigoR/WCS_2024/camera_trap/raster/latlon/LandCover_Type_Yearly_500m_v61/LC1', '200[0-1]|201[0-3]', full.names = T)
+landcover_pre_c <- rast(landcover_pre_files)
+land_pre <- modal(landcover_pre_c)
+names(land_pre) <- 'land_pre'
+rm(landcover_pre_c)
+
+
+# POS: 2014-2022
+landcover_pos_files <- list.files('C:/CodigoR/WCS_2024/camera_trap/raster/latlon/LandCover_Type_Yearly_500m_v61/LC1', '201[4-9]|202[0-9]', full.names = T)
+landcover_pos_c <- rast(landcover_pos_files)
+land_pos <- modal(landcover_pos_c)
+names(land_pos) <- 'land_pos'
+rm(landcover_pos_c)
+
+
+```
+
+As the values are numeric and we want the categories, we will rename them. Please bear in mind that your landcover layer might not have the same classes/levels as mine. Check here the classification values: MCD12_User_Guide_V6 https://lpdaac.usgs.gov/documents/101/MCD12_User_Guide_V6.pdf  (see page 7 Classification Legends).
+
+```{r eval=FALSE, echo=TRUE}
+# Renaming IGBP classification levels
+lancover_clases <- data.frame(ID=1:17, 
+                      category=c( "Evergreen needleleaf forests",
+                                "Evergreen broadleaf forests",
+                                "Deciduous needleleaf forests",
+                                "Deciduous broadleaf forests",
+                                "Mixed forests",
+                                "Closed shrublands",
+                                "Open shrublands",
+                                "Woody savannas",
+                                "Savannas",
+                                "Grasslands",
+                                "Permanent wetlands",
+                                "Croplands",
+                                "Urban and built-up lands",
+                                "Cropland/natural vegetation mosaics",
+                                "Snow and ice",
+                                "Barren",
+                                "Water bodies") )
+
+levels(land_pre) <- lancover_clases
+levels(land_pos) <- lancover_clases
+
+plot(land_pre, main='Land cover 2001-2013', axes=F, mar=c(0,0,5,15))
+plot(land_pos, main='Land cover 2001-2013', axes=F, mar=c(0,0,5,15))
+
+writeRaster(land_pre, "C:/CodigoR/WCS_2024/camera_trap/raster/latlon/land_pre.tif")
+writeRaster(land_pos, "C:/CodigoR/WCS_2024/camera_trap/raster/latlon/land_pos.tif")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

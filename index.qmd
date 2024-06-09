@@ -1,0 +1,238 @@
+---
+title: "Load Full Contry Data"
+subtitle: "WCS camera trap dataset"
+date: "`r Sys.Date()`"
+author: 
+  - name: Diego Lizcano
+    orcid: https://orcid.org/0000-0002-9648-0576
+license: CC BY-SA
+toc: true
+format: 
+  html:
+    code-fold: true
+    code-block-bg: true
+    code-block-border-left: "#31BAE9"
+citation: true
+google-scholar: true
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  dev = "png",
+  dev.args = list(type = "cairo-png"),
+  fig.width = 7,
+  fig.height = 5,
+  fig.align = "center",
+  eval = TRUE,
+  echo = TRUE,
+  warning = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache=TRUE)
+```
+
+## Carguemos algunos paquetes y funciones de ayuda
+
+```{r}
+#| warning: false
+#| message: false
+library(readxl)
+library(grateful)
+
+library(sf)
+library(mapview)
+library(maps)
+
+library(ggTimeSeries)
+
+library(tidyverse)
+
+source("C:/CodigoR/WCS-CameraTrap/R/organiza_datos.R")
+
+```
+
+
+
+
+```{r}
+#| warning: false
+#| message: false
+#| eval: false
+#| echo: false
+#| 
+world <- sf::st_as_sf(maps::map(database = "world", plot=FALSE, fill=TRUE))
+# filter paises
+
+paises <- world[c(9, 32,33,48,63,92,165,189,179,243),]
+
+ggplot() +
+  geom_sf(data=world, fill="white") +
+  geom_sf(data= paises, fill="gray75") +
+  coord_sf(xlim=c(-95.8566, -35.9310), ylim= c(-57.39878, 17.67390))
+
+```
+
+
+
+## Carguemos los datos de un pais
+
+En este caso vamos a usar Ecuador como ejemplo.
+
+```{r}
+#| warning: false
+#| message: false
+#| eval: false
+#| echo: true
+########################
+### Paises
+########################
+carpeta <- "C:/CodigoR/WCS-CameraTrap/data/"
+paises <- list.files(carpeta,  recursive = FALSE)
+
+
+
+Argentina <- data_by_country(country = "Argentina")
+Bolivia <- data_by_country(country = "Bolivia")
+Brazil <- data_by_country(country = "Brazil")
+Colombia <- data_by_country(country = "Colombia")
+Ecuador <- data_by_country(country = "Ecuador")
+Guatemala <- data_by_country(country = "Guatemala")
+Ecuador <- data_by_country(country = "Ecuador")
+Paraguay <- data_by_country(country = "Paraguay")
+Peru <- data_by_country(country = "Peru")
+Venezuela <- data_by_country(country = "Venezuela")
+
+
+
+
+```
+
+### Use la funcion `data_by_country`  para cargar todos los datos de un pais y ver un mapa sencillo e interactivo. Note que podemos usar los datos de cualquier otro pais.
+
+```{r}
+
+Ecuador <- data_by_country(country = "Ecuador")
+
+Country_to_map <- Ecuador |>  distinct(ExcelFile, year, `Deployment ID`, `Longitude Resolution`, `Latitude Resolution`)
+
+projlatlon <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+
+Country_map <- st_as_sf(x = Country_to_map,                         
+                         coords = c("Longitude Resolution", 
+                                    "Latitude Resolution"),
+                         crs = projlatlon)
+
+
+mapview(Country_map, zcol = c("year"),  burst = TRUE) # burst = TRUE prouce uniques
+
+
+```
+
+
+## Fotos por tipo de camara
+
+Ahora queremos ver las fotos que se han tomado con los diferentes modelos de camaras.
+
+
+```{r}
+# Creating ggplot graphs 
+Ecuador |> mutate(CameraType=`Camera Type`)  |> 
+  dplyr::count(CameraType,
+               sort = TRUE,
+               name = "n_cameraBrand") |> 
+  ggplot2::ggplot() + #plotting the camera models most used
+  ggplot2::geom_col(ggplot2::aes(x = CameraType,
+                                 y = n_cameraBrand)) 
+  
+```
+
+## Veamos todas las fotos en un calendario
+
+```{r}
+
+dtData <- Ecuador  |> as.data.frame() |> 
+  mutate(Date_Time=as_date(`Date_Time Captured`)) |> 
+    count(Date_Time) |> na.omit()
+
+# base plot
+p1 = ggplot_calendar_heatmap(
+   dtData,
+   'Date_Time',
+   'n',
+   dayBorderSize = 0.1,
+   monthBorderSize = 0.7
+)
+
+# adding some formatting
+p1 +
+   xlab(NULL) +
+   ylab(NULL) +
+   scale_fill_continuous(low = 'cyan', high = 'red') +
+   facet_wrap(~Year, ncol = 2) # number of columns
+
+
+
+```
+
+
+## Fotos con mas de 100 registros por sitios
+
+Seleccionaremos las especies que tienen mas de 100 registros por cada sitio  (Deployment ID).
+
+
+```{r}
+Ecuador |>
+  dplyr::distinct(`Deployment ID`, `Genus Species`) |>
+  dplyr::count(`Genus Species`, sort = TRUE) |>
+  dplyr::filter(n >= 100) |> #change threshold 
+  ggplot2::ggplot() +
+  ggplot2::geom_col(ggplot2::aes(x = `Genus Species`, y = n)) +
+  ggplot2::scale_y_continuous(
+    expand = ggplot2::expansion(mult = 0),
+    limits = c(0, 1100),
+    breaks = seq(0, 1100, by = 100)
+  ) +
+  ggplot2::labs(x = NULL,
+                y = "Locations") +
+  ggplot2::coord_flip() 
+
+  ggplot2::theme(
+    plot.margin = ggplot2::margin(t = 5,
+                                  r = 10,
+                                  b = 5,
+                                  l = 5,
+                                  unit = "pt"),
+    axis.text.y = ggtext::element_markdown()
+  )
+```
+
+
+# Y donde estan los Jaguares?
+
+Aca los podemos ver en un mapa, con el tamaño del circulo representando el numero de fotos que se han tomado. Note que podemos cambiar la especie a cualquier otra.
+
+```{r}
+Ecuador_cameras <- st_as_sf(x = Ecuador,                         
+                         coords = c("Longitude Resolution", 
+                                    "Latitude Resolution"),
+                         crs = projlatlon)
+
+jaguars <- Ecuador_cameras |> filter (Ecuador_cameras$`Genus Species`== "Panthera onca") 
+
+jaguars <- jaguars |> mutate(Date_Time=as_date(`Date_Time Captured`)) |> group_by("Deployment ID") |>  count(Date_Time) #|> ungroup() 
+
+mapview(jaguars, cex = "n")
+
+```
+
+> Se ve facil verdad?. Pero en realidad no lo es tanto. Esto ha sido posible gracias a un duro trabajo de varios años de los equipos de WCS de cada pais.
+
+
+## Session info in R.
+
+```{r sesion, results='markup'}
+sessionInfo()
+```

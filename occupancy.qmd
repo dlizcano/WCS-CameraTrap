@@ -1,0 +1,409 @@
+---
+title: "occupancy"
+subtitle: "WCS camera trap dataset"
+date: "`r Sys.Date()`"
+author: 
+  - name: Diego Lizcano
+    orcid: https://orcid.org/0000-0002-9648-0576
+license: CC BY-SA
+toc: true
+format: 
+  html:
+    code-fold: true
+    code-block-bg: true
+    code-block-border-left: "#31BAE9"
+citation: true
+google-scholar: true
+bibliography: grateful-refs.bib
+---
+
+## Introducción 
+
+Obtener datos para estudios de poblaciones animales, es costoso y dispendioso, y no siempre se puede medir la densidad poblacional o parámetros demográficos como natalidad o mortalidad. 
+
+### Ocupación 
+
+En este panorama surge la estimación de la ocupación (la cual vamos a llamar Psi (ψ)), como una buena herramienta para entender las poblaciones. Usualmente parámetros poblacionales como la abundancia y la densidad, requieren de un elevado número de registros, y tomar datos con un diseño especifico, con los costos económicos y logísticos que conlleva. 
+
+Adicionalmente y debido a que la detectabilidad (la cual vamos a llamar (p)) en animales silvestres no es perfecta, el uso de los datos crudos genera subestimaciones de la ocupación. Sin embargo con el empleo de muestreos repetidos, es posible generar estimaciones del error de detección y, con esta estimación, obtener valores no sesgados de la ocupación. Los métodos de análisis de la ocupación fueron inicialmente desarrollados por (MacKenzie et al., 2002) y posteriormente expandidos por otros autores (M. Kéry & Royle, 2008; MacKenzie et al., 2006; MacKenzie & Royle, 2005; Royle, 2006; Royle & Kéry, 2007; Royle, Nichols, Kéry, 2005). 
+
+Para aprender con mas detalle sobre la ocupación, te recomiendo seguir [este tutorial en español](https://dlizcano.github.io/IntroOccuBook/). 
+
+A continuacion vamos a hacer un analisis de ocupación sencillo usando los datos del Jaguar Camera Trap Survey, Tuichi 8, 2019 del archivo BOL-038.xlsx
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  dev = "png",
+  dev.args = list(type = "cairo-png"),
+  fig.width = 7,
+  fig.height = 5,
+  fig.align = "center",
+  eval = TRUE,
+  echo = TRUE,
+  warning = FALSE,
+  error = FALSE,
+  message = FALSE,
+  cache=TRUE)
+```
+
+## Primero cargamos algunos paquetes y funciones
+
+```{r}
+library(readxl)
+library(grateful)
+library(DT)
+library(sf)
+library(mapview)
+library(maps)
+library(tmap)
+library(terra)
+library(elevatr)
+library(unmarked)
+library(ubms)
+
+library(tidyverse)
+
+source("C:/CodigoR/WCS-CameraTrap/R/organiza_datos.R")
+
+
+
+```
+
+## Ahora cargamos los datos del archivo BOL-038.xlsx
+
+Para esto usamos las funciones  `loadproject` y `get.sites`.
+
+```{r}
+# load data
+bol038 <- loadproject("C:/CodigoR/WCS-CameraTrap/data/Bolivia/BOL-038.xlsx")
+
+# get sites
+bol038_sites <- get.sites("C:/CodigoR/WCS-CameraTrap/data/Bolivia/BOL-038.xlsx")
+# make a map
+mapview(bol038_sites, zcol="bait")
+
+```
+
+### veamos una tabla con numero de fotos por especie
+
+```{r}
+datatable(as.data.frame( sort(table(bol038$scientificName))))
+```
+
+## Usemos las coordenadas para extraer covariables espaciales
+
+No te ausutes! no son del espacio exterior! con espaciales quiero decir que son covariables que se pueden obtener de un mapa. 
+
+Usaremos el mapa de puntos (bol038_sites) para extraer el porcentaje de cobertura vegetal del anio 2019 de MODIS, el mapa de cobertura de la tierra del anio 2019 de MODIS y la elevación. 
+
+
+```{r}
+
+# get elevation map
+elevation <- rast(get_elev_raster(bol038_sites, z = 9))
+bb <-  st_as_sfc(st_bbox(elevation)) # make bounding box 
+
+land_cover_large <- rast("C:/CodigoR/WCS-CameraTrap/raster/latlon/LandCover_Type_Yearly_500m_v61/LC1/MCD12Q1_LC1_2019_001.tif")
+
+per_tree_cover_large <-  rast("C:/CodigoR/WCS-CameraTrap/raster/latlon/Veg_Cont_Fields_Yearly_250m_v61/Perc_TreeCov/MOD44B_Perc_TreeCov_2019_065.tif")
+
+land_cover <- terra::crop(land_cover_large, elevation, snap="near") # cut to elevation
+per_tre_cover <- terra::crop(per_tree_cover_large, elevation, snap="near") # cut to elevation
+# project to elevation
+land_cover_p <- terra::project(x = land_cover, y = elevation, method="bilinear")
+per_tre_cover_p <- terra::project(x = per_tre_cover, y = elevation, method="bilinear")
+
+ext(land_cover_p)<-ext(elevation)
+ext(per_tre_cover_p)<-ext(elevation)
+
+#resample<-dimension and resolution fits but values change
+# land_cover_p<-resample(land_cover,elevation)
+ 
+# remove the large maps
+rm(per_tree_cover_large, land_cover_large)
+# make a stack
+covs_map <- rast(list(elevation, land_cover_p, per_tre_cover_p))
+# rename
+names(covs_map) <- c("elevation", "land_cover", "per_tre_cover")
+plot(covs_map)
+# extract covs using points and add to bol038_sites
+covs <- cbind(bol038_sites, terra::extract(covs_map, bol038_sites))
+# remove decimals convert to factor
+covs$land_cover <-  as.factor(floor(covs$land_cover))
+
+```
+
+
+## Construyamos la historia de detección de una especie. 
+
+En este caso lo haremmos para el Jaguar. Para esto usaremos la función  `f.det_history.creator`, la cual crea una lista con todas las historias de deteccion por dia, de todas las especies y luego extraemos al jaguar.
+
+posteriormente usamos el paquete `unmarked` para adicionar la historia de detección al analisis y calcular la probabilidad de deteccion y la ocupación.
+
+```{r}
+
+historias <- f.det_history.creator(data=bol038, year=2019)
+sp_number <- which(names(historias)=="Panthera onca")
+
+```
+
+## Ensamblemos el objeto UMF 
+
+```{r}
+#| warning: false
+#| message: false
+#| eval: false
+#| echo: true
+#arrange detections observations
+
+x4_bait <- cbind(as.data.frame(bol038_sites), replicate(49, bol038_sites$bait))
+x4_CamType <- cbind(as.data.frame(bol038_sites), replicate(49, bol038_sites$CamTypes))
+x4_ObsCovs_list <- list(bait= as.data.frame(x4_bait[,5:52]),
+                        CamTypes= as.data.frame(x4_CamType[,5:52]))
+
+# Make UMF object
+umf <- unmarkedFrameOccu(y= as.data.frame (historias[[sp_number]]),
+                           siteCovs = as.data.frame(covs),
+                           obsCovs = x4_ObsCovs_list
+                         )
+
+# saveRDS(umf, "C:/CodigoR/WCS_2024/camera_trap/R/umf.rds")
+
+plot(umf, main="Panthera onca")  
+
+
+```
+
+
+```{r}
+#| warning: false
+#| message: false
+#| eval: true
+#| echo: false
+
+umf <- readRDS("C:/CodigoR/WCS-CameraTrap/R/umf.rds")
+
+plot(umf, main="Panthera onca")  
+
+
+```
+
+## Construyamos modelos y seleccionemos luego el "mejor" modelo con máxima verosimilitud
+
+La función `occu` ajusta el modelo de ocupación estándar *single season occupancy model* basado en modelos binomiales inflados a cero (MacKenzie et al. 2006, Royle y Dorazio 2008).
+
+Vea mas detalles de lo que hace esta funcion y las ecuaciones que hay detras escribiendo en su consola: ?`occu` o siguiendo [este tutorial en español](https://dlizcano.github.io/IntroOccuBook/). 
+
+
+
+
+```{r}
+
+# fit unmarked models
+fit_1 <- unmarked::occu(~1~1, data=umf) # ok!
+fit_2 <- unmarked::occu(~factor(bait) ~1, data=umf) # It work!
+fit_3 <- unmarked::occu(~factor(CamTypes) ~1, data=umf) # It work!
+fit_4 <- unmarked::occu(~1~scale(elevation), data=umf) # It work!
+fit_5 <- unmarked::occu(~1~factor(land_cover), data=umf) # Hessian problem!
+fit_6 <- unmarked::occu(~1~scale(per_tre_cover), data=umf)# It work!
+
+# model names
+# fit list for detection
+fms1<-fitList("p(.) Ocu(.)"=            fit_1,
+              "p(bait) Ocu(.)"=         fit_2, 
+              "p(CamType) Ocu(.)"=      fit_3, 
+              "p(.) Ocu(elevation)"=    fit_4,
+              "p(.) Ocu(land_cover)"=   fit_5,
+              "p(.) Ocu(per_tre_cover)"=fit_6)
+
+# model selection detection unmarked
+ms1<- modSel(fms1)
+ms1
+
+# to see in html
+toExport <- as(ms1, "data.frame")  # Everything
+fms1_table <- toExport |> select("model", "AIC", "delta", "cumltvWt") 
+datatable(fms1_table)
+
+```
+
+Note que hay un problema de Hessian en el modelo fit_5!
+
+### Pero si sera un buen modelo para predecir la detección?
+
+Hagamos una prueba sencilla con interpretación estadistica y visual con parboot al mejor modelo. Esta función simula conjuntos de datos basados en el modelo seleccionado, reajusta el modelo y evalúa una estadística de ajuste especificada por el usuario para cada simulación. Al comparar esta distribución con la estadística observada proporciona un medio para evaluar la bondad de ajuste o evaluar la incertidumbre de la estimación del modelo.
+
+```{r}
+
+# Function returning the fit-statistics.
+fitstats <- function(fm, na.rm=TRUE) {
+    observed <- getY(fm@data)
+    expected <- fitted(fm)
+    # resids <- residuals(fm)
+    # sse <- sum(resids^2, na.rm=na.rm)
+    chisq <- sum((observed - expected)^2 / expected, na.rm=na.rm)
+    # freeTuke <- sum((sqrt(observed) - sqrt(expected))^2, na.rm=na.rm)
+    out <- c(Chisq=chisq) #c(SSE=sse, Chisq=chisq, freemanTukey=freeTuke)
+    return(out)
+}
+
+pb <- parboot(fit_3, fitstats, nsim=300, report=1)
+plot(pb, main="p(CamType) Ocu(.)")
+
+```
+La linea punteada cae dentro de la distribución del histograma, asi que si es un modelo, con un buen ajuste que serviria para predecir. 
+
+## Construyamos modelos y seleccionemos el "mejor" en marco Bayesiano
+
+Aca debemos tener paciencia para que el modelo converga incrementando las iteraciones a por lo menos 100 mil....
+
+> Just Wait !!!!! 
+
+```{r}
+
+# define number of iterations
+itera=10000
+
+# fit stan (Bayesian models) using the package ubms
+fit_stan_1 <- stan_occu(~1~1, data=umf, chains=3, iter=itera, cores=3)
+fit_stan_2 <- stan_occu(~factor(bait)~1, data=umf, chains=3, iter=itera, cores=3)
+fit_stan_3 <- stan_occu(~factor(CamTypes)~1, data=umf, chains=3, iter=itera, cores=3)
+fit_stan_4 <- stan_occu(~1~scale(elevation), data=umf, chains=3, iter=itera, cores=3)
+fit_stan_5 <- stan_occu(~1~factor(land_cover), data=umf, chains=3, iter=itera, cores=3)
+fit_stan_6 <- stan_occu(~1~scale(per_tre_cover), data=umf, chains=3, iter=itera, cores=3)
+fit_stan_7 <- stan_occu(~1~scale(elevation) + factor(land_cover), data=umf, chains=3, iter=itera, cores=3)
+
+# put name to the models
+stan_mods <- fitList("p(.) Ocu(.)" =           fit_stan_1,
+                     "p(bait) Ocu(.)"=         fit_stan_2,
+                     "p(CamType) Ocu(.)"=      fit_stan_3,
+                     "p(.) Ocu(elevation)"=    fit_stan_4,
+                     "p(.) Ocu(land_cover)"=   fit_stan_5, 
+                     "p(.) Ocu(per_tre_cover)"=fit_stan_6,
+                     "p(.) Ocu(elev+land_cover)"=fit_stan_7
+                     )
+
+# model selection 
+ms2 <- round(modSel(stan_mods), 3) #AGB_Spawn
+ms2
+
+# to see the table in html
+ms2_table <- as(ms2, "data.frame")  # Everything
+datatable(ms2_table)
+
+
+```
+
+El modelo con el elpd más grande "p(.) Ocu(elevación)" tuvo el mejor rendimiento. La columna elpd_diff muestra la diferencia en elpd entre un modelo y el modelo superior; Si esta diferencia es varias veces mayor que el error estándar de la diferencia (se_diff), estamos seguros de que el modelo con el elpd más grande tuvo un mejor desempeño.
+
+### Pero si sera un buen modelo para predecir la ocupación?
+
+Hagamos una prueba remuestreando con la función gof. Para cada muestreo de los posteriores, la estadística MB se calcula para los datos reales y para un conjunto de datos simulado. La proporción de muestreos para los cuales la estadística simulada es mayor que la estadística real debería ser cercana a 0,5 si el modelo se ajusta bien.
+
+```{r}
+(fit_top_gof <- gof(fit_stan_4, draws=100, quiet=TRUE))
+plot(fit_top_gof)
+```
+Acá la interpretación es que los puntos deben estar distribuidos alrededor de la linea y el valor P debe ser cercano a 0.5. En este caso 0.2 no esta mal, es un modelo que se puede usar para predecir, probablemente con un error grande pero dentro de los limites de lo razonable.
+
+### Y cual es la probabilidad de deteccion y ocupacion del jaguar?
+
+Veamos los detalles del modelo
+
+```{r}
+(fit_stan_4)
+```
+
+Recuerque que estan en escala logit, asi que usamos plogis para convertirlo a escala normal, asi plogis(-4.05) = `r plogis(-4.05)`  es la probabilidad de deteccion. Es una probabilidad baja tipica de un Jaguar. 
+
+La ocupación es plogis(-1.222) = `r plogis(-4.05)` cuando el intercepto de la elevacion es cero. Recuerque que la ocupación del jaguar depende de la elevación. 
+
+## Grafiquemos los modelos
+
+### Bait
+
+```{r}
+plot_effects(fit_stan_2, "det") # Detection
+```
+
+### CamType
+```{r}
+plot_effects(fit_stan_3, "det") # Detection
+```
+
+### Elevation
+
+```{r}
+plot_effects(fit_stan_4, "state") # Ocupancy
+```
+
+### Percent tree cover
+```{r}
+plot_effects(fit_stan_6, "state") # Ocupancy
+```
+
+### Land cover
+```{r}
+# plot top model
+
+plot_effects(fit_stan_5, "state") # Ocupancy
+
+```
+
+## Usemos el mejor modelo para hacer una prediccion espacialmente explicita de la ocupación 
+
+```{r}
+#| warning: false
+#| message: false
+#| eval: false
+#| echo: true
+
+# predict using the raster
+occu_pred <- predict(fit_stan_4, submodel="state", newdata=covs_map$elevation)
+
+# make a template raster = to covs_map$elevation 
+pred_map <- covs_map$elevation 
+# drape prediction on top
+pred_map[] <- occu_pred$Predicted
+# put name
+names(pred_map) <- "Occupancy"
+# view in map
+mapview (pred_map) + mapview(bol038_sites, zcol="bait")
+
+```
+
+
+```{r}
+#| warning: false
+#| message: false
+#| eval: true
+#| echo: false
+
+pred_map <- rast("C:/CodigoR/WCS-CameraTrap/R/pred_map.tif")
+mapview (pred_map) + mapview(bol038_sites, zcol="bait")
+
+```
+
+
+
+## Package Citation
+
+```{r }
+pkgs <- cite_packages(output = "paragraph", pkgs="Session", out.dir = ".")
+# knitr::kable(pkgs)
+pkgs
+```
+
+## Sesion info
+
+```{r}
+print(sessionInfo(), locale = FALSE)
+```
+
+
+
+

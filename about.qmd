@@ -1,0 +1,22 @@
+---
+title: "About"
+subtitle: "WCS Camera Trap Workshop in La Paz, Bolivia"
+author: 
+  - name: Diego Lizcano
+    orcid: https://orcid.org/0000-0002-9648-0576
+    affiliation: "WCS - WildMon"
+    affiliation-url: https://wildmon.ai/team
+license: CC BY-SA
+toc: true
+format: 
+  html:
+    code-fold: true
+    code-block-bg: true
+    code-block-border-left: "#31BAE9"
+citation: true
+google-scholar: true
+bibliography: grateful-refs.bib
+---
+
+
+Some data handling and occupancy analysis 
