@@ -1,10 +1,11 @@
+
 library(lubridate)
 library(sf)
-require(readxl)
-require(dplyr)
-require(hms)
-require(tidyr)
-
+library(readxl)
+library(dplyr)
+library(hms)
+library(tidyr)
+library(camtrapR) # new in v2
 
 # load custom functions
 # Adjust path to the file (rganiza_datos_v2) in your hard disk
