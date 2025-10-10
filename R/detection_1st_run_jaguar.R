@@ -20,7 +20,7 @@ landcov <- rast("E:/WCS-CameraTrap/raster/latlon/LandCover_Type_Yearly_500m_v61/
 cattle <- rast("E:/WCS-CameraTrap/raster/latlon/Global cattle distribution/5_Ct_2010_Da.tif")
 
 
-Jaguar_Regional <- read_csv("D:/CORREGIDAS/JaguarRegional50def_v2.csv")
+Jaguar_Regional <- read_csv("G:/WCS-CameraTrap/data/output/Regionales/JaguarRegional50def_v2.csv")
 y_reg <- Jaguar_Regional[,9:58]
 
 

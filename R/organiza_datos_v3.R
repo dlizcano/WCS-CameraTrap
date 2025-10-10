@@ -15,18 +15,18 @@ dev.det_history.creator<-function(data,year){
   require(lubridate)
   require(hms)
   #results object
-  res<-list()
+  res <- list()
   
   #get the dimensions of the matrix
   
-  #list if sanpling units
+  #list if sampling units
   cams<-unique(data$locationID)
   cams<-sort(cams)
   rows<-length(cams)
   species<-unique(data$scientificName)
   # make some equivalents
-  data$eventDate <- as_date(data$`Date_Time Captured`)
-  data$time <- as_hms(ymd_hms(as_datetime(data$`Date_Time Captured`)))
+  data$eventDate <- as_date(data$`Date_Time_Captured`)
+  data$time <- as_hms(ymd_hms(as_datetime(data$`Date_Time_Captured`)))
   
   # start and end dates of sampling periods
   # data<-data[data$Sampling.Period==year,]
@@ -51,8 +51,8 @@ dev.det_history.creator<-function(data,year){
   #outline the sampling periods for each camera j
   for(j in 1:length(start.dates)){
     #for each camera beginning and end of sampling
-    low<-which(date.header==as.Date(as.character(start.dates[j]), format = "%Y-%m-%d"))
-    hi<-which(date.header==as.Date(as.character(end.dates[j]), format = "%Y-%m-%d"))
+    low<-which(date.header==as.Date(start.dates[j]))#as.Date(as.character(start.dates[j]), format = "%Y-%m-%d"))
+    hi<-which(date.header==as.Date(start.dates[j]))#as.Date(as.character(end.dates[j]), format = "%Y-%m-%d"))
     if(length(low)+length(hi)>0){
       indx<-seq(from=low,to=hi)
       mat[names(start.dates)[j],indx]<- 0
@@ -185,27 +185,41 @@ loadproject <- function(path_to_file){
   
   cameras <- read_excel(path_to_file, 
                         sheet = "Cameras") |> 
-    rename("Camera_Id"= "Camera id") |> 
-    rename("Year_Purchased"= "Year Purchased") 
+    dplyr::rename("Camera_Id"= "Camera id") |> 
+    dplyr::rename("Year_Purchased"= "Year Purchased") 
+  
+  cam_in_cameras <- length(unique(cameras$Camera_Id))
   
   deployment <- read_excel(path_to_file, 
                         sheet = "Deployment") |> select(!c(ID)) |> 
-    rename("Longitude" = "Longitude Resolution") |> 
-    rename("Latitude" = "Latitude Resolution") |> 
-    rename("start_date" = "Camera Deployment Begin Date") |> 
-    rename("end_date" = "Camera Deployment End Date") |> 
-    rename("Deployment_ID" = "Deployment ID") |> 
-    rename("Camera_Id" = "Camera Id") |>
-    mutate(locationID=Point)
+    dplyr::rename("Longitude" = "Longitude Resolution") |> 
+    dplyr::rename("Latitude" = "Latitude Resolution") |> 
+    dplyr::rename("start_date" = "Camera Deployment Begin Date") |> 
+    dplyr::rename("end_date" = "Camera Deployment End Date") |> 
+    dplyr::rename("Deployment_ID" = "Deployment ID") |> 
+    dplyr::rename("Camera_Id" = "Camera Id") |>
+    mutate(locationID = Point)
     
+  cam_in_deployment <- length(unique(deployment$Camera_Id))
+  deployments_in_deployment<- length(unique(deployment$Deployment_ID))
+  point_in_deployment <- length(unique(deployment$locationID))
   
   image <- read_excel(path_to_file, skip = 1,
                         sheet = "Image") |> 
     select(!c(ID, Location, "IUCN Identification Number", "Animal recognizable", "individual Animal notes"  )) |> 
-    rename("scientificName" = "Genus Species") |> 
-    rename("Date_Time_Captured" = "Date_Time Captured") |> 
-    rename("Deployment_ID" = "Deployment ID") 
+    dplyr::rename("scientificName" = "Genus Species") |> 
+    dplyr::rename("Date_Time_Captured" = "Date_Time Captured") |> 
+    dplyr::rename("Deployment_ID" = "Deployment ID") 
   
+  cam_in_image <- length(unique(image$Deployment_ID))
+  point_in_image <- length(unique(image$Point))
+  
+  cat(paste(cam_in_cameras, "cameras in Cameras. \n", 
+            cam_in_deployment, "cameras in Deployment. \n",
+            deployments_in_deployment, "deployments in Deployment. \n",
+            point_in_deployment, "points in Deployment. \n",
+            cam_in_image, "cameras in Images. \n",
+            point_in_image, "points in Images. \n"))
   
   data1 <-  cameras |> left_join(deployment) # join first two
   by <- join_by("Deployment_ID") 
@@ -217,7 +231,7 @@ loadproject <- function(path_to_file){
   ind <- which(data$Date_Time_Captured=="NONE")
   if(class(ind)=="integer"){print("dates ok")}else(data <- data[-c(ind),])
   #data <- data[-c(ind),]
-  data$Date_Time_Captured <- (as.Date(as.character(data$Date_Time_Captured, "%Y/%m/%d")))
+  data$Date_Time_Captured <- as.POSIXlt(data$Date_Time_Captured, format="%Y/%m/%d %H:%M:%S") #as.Date
   # remove NA in hour
   # remove NA in Date_Time_Captured
   data <- data %>% drop_na(Date_Time_Captured)
@@ -230,8 +244,8 @@ loadproject <- function(path_to_file){
   # data <- data[-c(ind),]
   
   
-  print(paste("year:",unique(data$year), 
-              "  Jaguar_Design:", unique(data$Jaguar_Design))) #Just to check
+  cat(paste("year:",unique(data$year), "\n",
+              "Jaguar_Design:", unique(data$Jaguar_Design)),"\n") #Just to check
   
   return (data)
   
@@ -242,56 +256,111 @@ loadproject <- function(path_to_file){
 # get the sites to add covariates
 #################################
 get.sites <- function(path_to_file){
+  suppressWarnings({ # no warnings
   require(readxl)
   require(dplyr)
   require(sf)
   
   project <- read_excel(path_to_file, 
                            sheet = "Project", range = "M1:M2")
-  
+  ##############################
   # if Jaguar_Design == yes 
+  ##############################
   if (project$Jaguar_Design == "yes"){
   
+    cameras <- read_excel(path_to_file, 
+                          sheet = "Cameras") |> 
+      dplyr::rename("Camera_Id"= "Camera id") |> 
+      dplyr::rename("Year_Purchased"= "Year Purchased") 
+    
     deployment <- read_excel(path_to_file, 
                              sheet = "Deployment") |> select(!c(ID)) |> 
-      rename("Longitude" = "Longitude Resolution") |> 
-      rename("Latitude" = "Latitude Resolution") |> 
-      rename("start_date" = "Camera Deployment Begin Date") |> 
-      rename("end_date" = "Camera Deployment End Date") |> 
-      rename("bait"="Bait Description") |> 
-      rename("CamType"="Camera Type")  
+      dplyr::rename("Longitude" = "Longitude Resolution") |> 
+      dplyr::rename("Latitude" = "Latitude Resolution") |> 
+      dplyr::rename("start_date" = "Camera Deployment Begin Date") |> 
+      dplyr::rename("end_date" = "Camera Deployment End Date") |> 
+      dplyr::rename("bait"="Bait Description") |> 
+      dplyr::rename("CamType"="Camera Type")  |> 
+      dplyr::rename("Deployment_ID" = "Deployment ID") |> 
+      dplyr::rename("Camera_Id"= "Camera Id")
     
-    bait <- deployment |> # can prodece error if is a mix 
-      distinct(Point, Longitude, Latitude, bait) |> mutate(Point = as.character(Point))
+    # extract covs
+    bait <- deployment |> # can produce error if is a mix 
+      distinct(Point, Longitude, Latitude, bait,
+               season, rio_playa,	arroyo,	camino,	senda_animal,	senda_gente,	salitral,	pozo_agua,	bosque,	sabana,	intermedio,	intervalo_trigger) |> 
+               # Deployment_ID )|> #, Camera_Id) |> 
+      mutate(Point = as.character(Point))
+    
+    # add year selecting  the min yr per point
+    year_purchased <- deployment |> left_join(cameras) #|> # as table
+      # select("Year_Purchased") |> rename("year_Purchased" = "Year_Purchased")# join first two
+    # by <- join_by("Camera_Id") 
+    # datatemp <- left_join(deployment, cameras, by) # join by "Deployment ID"
+    min_yr_purcha_by_pt <-  year_purchased |> group_by(Point) |> summarise(year_purchased=min(Year_Purchased)) |> ungroup()
+    cam_type1 <-  year_purchased |> group_by(Point) |> summarise(camtype=first(CamType)) |> ungroup()
+    
+    
     # count camera models
-    camtypes <- deployment |> mutate(site=Point) |> distinct(Point, CamType) 
+    camtypes <- deployment |> mutate(site=Point) |> 
+      distinct(Point, CamType) 
     CamTypes <-  as.data.frame(cbind(CamTypes=table(camtypes$Point),  Point=names(table(camtypes$Point))))
-    CamTypes$Jaguar_Design <- project$Jaguar_Design
-    a <- left_join(bait, CamTypes) |> mutate(across( c(CamTypes), as.factor) ) 
     
+    CamTypes$Jaguar_Design <- project$Jaguar_Design
+    a1 <- left_join(bait, CamTypes) |>  # add min year
+      mutate(across(c(CamTypes), as.factor)) |> 
+      mutate(Point= as.numeric(Point)) # convert Point to numeric to next join
+    a <- left_join(a1, min_yr_purcha_by_pt) |> left_join(cam_type1)
   }# close Jaguar_Design == yes 
   
+  ##############################
   # if Jaguar_Design == no 
+  ##############################
   if (project$Jaguar_Design == "no"){
 
+    cameras <- read_excel(path_to_file, 
+                          sheet = "Cameras") |> 
+      dplyr::rename("Camera_Id"= "Camera id") |> 
+      dplyr::rename("Year_Purchased"= "Year Purchased") 
+    
     deployment <- read_excel(path_to_file, 
                              sheet = "Deployment") |> select(!c(ID)) |> 
-      rename("Longitude" = "Longitude Resolution") |> 
-      rename("Latitude" = "Latitude Resolution") |> 
-      rename("start_date" = "Camera Deployment Begin Date") |> 
-      rename("end_date" = "Camera Deployment End Date") |> 
-      rename("bait"="Bait Description") |> 
-      rename("CamType"="Camera Type")  
+      dplyr::rename("Longitude" = "Longitude Resolution") |> 
+      dplyr::rename("Latitude" = "Latitude Resolution") |> 
+      dplyr::rename("start_date" = "Camera Deployment Begin Date") |> 
+      dplyr::rename("end_date" = "Camera Deployment End Date") |> 
+      dplyr::rename("bait"="Bait Description") |> 
+      dplyr::rename("CamType"="Camera Type") |> 
+      dplyr::rename("Deployment_ID" = "Deployment ID") |> 
+      dplyr::rename("Camera_Id"= "Camera Id")
     
-    bait <- deployment |> # can prodece error if is a mix 
-      distinct(Point, Longitude, Latitude, bait) |> mutate(Point = as.character(Point))
+    bait <- deployment |> # can produce error if is a mix 
+          distinct(Point, Longitude, Latitude, bait,
+                   season, rio_playa,	arroyo,	camino,	senda_animal,	senda_gente,	salitral,	pozo_agua,	bosque,	sabana,	intermedio,	intervalo_trigger) |> 
+          mutate(Point = as.character(Point))
+    
+    # add year
+    # add year selecting  the min yr per point
+    year_purchased <- deployment |> left_join(cameras) |>  #|> # as table
+    mutate(Point = as.character(Point))
+    # select("Year_Purchased") |> rename("year_Purchased" = "Year_Purchased")# join first two
+    # by <- join_by("Camera_Id") 
+    # datatemp <- left_join(deployment, cameras, by) # join by "Deployment ID"
+    
+    # sometimes problematic if have two cameras per point
+    min_yr_purcha_by_pt <-  year_purchased # |> group_by(Point) |> summarise(year_purchased=min(Year_Purchased)) |> ungroup()
+    cam_type1 <-  year_purchased # |> group_by(Point) |> summarise(camtype=first(CamType)) |> ungroup()
+    
+    
     # count camera models
-    camtypes <- deployment |> mutate(site=as.character(Point)) |> distinct(Point, CamType) 
+    camtypes <- deployment |> mutate(site=as.character(Point)) |> 
+          distinct(Point, CamType) 
     camtypes$Point <- as.character(camtypes$Point)
     # add Jaguar design
     camtypes$Jaguar_Design <- project$Jaguar_Design
-    # CamTypes <-  as.data.frame(cbind(CamTypes=table(camtypes$Point),  Point=names(table(camtypes$Point))))
-    a <- left_join(bait, camtypes) #|> mutate(across( c(CamTypes), as.factor) ) 
+    a1 <- left_join(bait, camtypes) |>  # add min year
+      mutate(across(c(CamType), as.factor)) # |> # uncomment 4 Ecua
+      # mutate(Point= as.numeric(Point)) # convert Point to numeric to next join
+    a <- a1 |> left_join(min_yr_purcha_by_pt) |> left_join(cam_type1)
     
   }# close Jaguar_Design == no 
 
@@ -302,15 +371,18 @@ get.sites <- function(path_to_file){
     st_crs(sites) <- 4326
   
   return (sites)
-  
-} # end function
+  }) # end supress warning
+} # end get.sites function
 
 
 
+#############################################
+### Historias de detección con fecha.. may be problem
+#############################################
 
 f.det_history.creator<-function(data,year){
   #results object
-  res<-list()
+  res <- list()
   require(lubridate)
   require(hms)
   #get the dimensions of the matrix
@@ -335,13 +407,18 @@ f.det_history.creator<-function(data,year){
   mat<-matrix(NA,rows,cols,dimnames=list(cams,as.character(date.header)))
   
   #for all cameras, determine the open and close date and mark in the matrix
-  start.dates<-tapply(as_date(data$start_date),data$locationID,unique)
+  start.dates<-as_date(tapply((data$start_date), data$locationID, unique))
   nms<-names(start.dates)
   # start.dates<-ymd(start.dates)
   names(start.dates)<-nms
-  end.dates<-tapply(as_date(data$end_date),data$locationID,unique)
+  end.dates<-as_date(tapply((data$end_date),data$locationID,unique))
   # end.dates<-ymd(end.dates)
   names(end.dates)<-nms
+  
+  # CHK for error date
+  # if(which(is.na(end.dates))>=1){print("Bad date format in Deployment")}
+  # if(which(is.na(start.dates))>=1){print("Bad date format in Deployment")}
+  
   
   #outline the sampling periods for each camera j
   for(j in 1:length(start.dates)){
@@ -403,7 +480,18 @@ wcs.det_history.creator<-function(data){
   # require(hablar) # to get the max with NA
   #get the dimensions of the matrix
   
-  #list if sanpling units
+  # # Check if dates in image are in range of deployment
+  # index_cams_id <- unique(data$Camera_Id)
+  # fotomin <- data |> group_by(Camera_Id) |> summarize (minphoto=min(Date_Time_Captured))# |> min(Date_Time_Captured)
+  # cam_deploy <- data |> group_by(Camera_Id) |> distinct(start_date)
+  # 
+  # for (i in 1:length(index_cams_id)) {
+  #   fotomin <- data |> filter(Camera_Id == index_cams_id[i]) |> select(Date_Time_Captured)  
+  #   minc <- 
+  # }
+  # 
+  
+  #list if sampling units
   cams<-unique(data$locationID)
   cams<-sort(cams)
   rows<-length(cams)
@@ -418,7 +506,16 @@ wcs.det_history.creator<-function(data){
   # max<-max(s(as.Date(as.character(data$time), "%Y/%m/%d"))) #max(s(data$column1))
   max<-max(as.Date(as.character(data$end_date), "%Y/%m/%d"))
   
+  ### warning error date  ###
+  if(is.na(min)==TRUE){ stop("dates as number in Deployment") } 
+  if(is.na(max)==TRUE){ stop("dates as number in Deployment") } 
+  
   cols<-max-min+1
+  ### print number of days and sites ####
+  cat(paste( format(cols), "of sampling effort. \n" , 
+             rows, "sampling sites. \n" ,
+             length(species), "species. \n"
+            ))
   
   #sampling period
   date.header<-seq(from=min,to=max, by="days")
@@ -465,7 +562,7 @@ wcs.det_history.creator<-function(data){
     sum.nas<-apply(mat.nas,2,sum)
     indx.nas<-which(sum.nas==rows)
     if(length(indx.nas)>0){
-      mat<-mat[,-indx.nas]
+    #  mat<-mat[,-indx.nas] ##### OJO... Coment para Venezuela
     }
     ###################################
     ## get mat starting day 1
@@ -481,6 +578,10 @@ wcs.det_history.creator<-function(data){
       }
     ##################################
     # res<-c(res,list(mat)) # original  with dates 
+    # chk missing days
+      miscam <- length(1:dim(mat)[2]) - dim(mat2)[1] 
+     # if(miscam >=1){stop(paste(miscam, " missing days. Photos after pickup date")) } 
+      
     colnames(mat2) <- c(1:dim(mat)[2]) # put column name 
     res<-c(res,list(mat2)) # modify no day starting day1
     #return the matrix to its original form
@@ -513,9 +614,21 @@ data_by_country <- function(path_to_files, country="Argentina"){
   i.strings <- paste0(pais, "/", recIDs, sep="")
   
   # make a list with all tables
-  deployment_pais<-lapply(i.strings, function(x) read_excel(x, sheet = "Deployment", col_names = TRUE))
+  deployment_pais<-lapply(i.strings, function(x) read_excel(x, sheet = "Deployment", # including  Robs new columns
+                                                            col_types = c("numeric", 
+                                                                          "text", "text", "numeric", "numeric", 
+                                                                          "text", "text", "text", "text", "text", 
+                                                                          "text", "text", "text", "text", "text", 
+                                                                          "text", "text", "text", "text", "text", 
+                                                                          "text", "text", "text", "text", "text",
+                                                                          "text", "text", "text"), col_names = TRUE))
   
-  image_pais<-lapply(i.strings, function(x) read_excel(x, sheet = "Image", skip = 1, col_names = TRUE))
+  image_pais<-lapply(i.strings, function(x) read_excel(x, sheet = "Image", skip = 1,
+                                                       col_types = c("text", 
+                                                                     "text", "text", "text", "text", "text", 
+                                                                     "text", "text", "numeric", "text", 
+                                                                     "numeric", "text", "text", "text", 
+                                                                     "numeric", "text", "text"), col_names = TRUE))
   
   
   # extract names... 
